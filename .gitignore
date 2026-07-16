@@ -1,0 +1,6 @@
+# Ignore everything in the root repository by default.
+*
+
+# Keep the repository description files.
+!.gitignore
+!README.md
