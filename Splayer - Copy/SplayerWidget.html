@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spoty Widget</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      width: 600px;
+      height: 120px;
+      overflow: hidden;
+      background: transparent;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+
+    #widget {
+      --cover-bg: none;
+      --bg-blur: 20px;
+      --blurred-bg-opacity: 0.95;
+      width: 600px;
+      height: 120px;
+      position: relative;
+      isolation: isolate;
+      display: flex;
+      align-items: stretch;
+      overflow: hidden;
+      background: transparent;
+      box-shadow: none;
+      border-radius: 20px;
+    }
+
+    #widget::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background-image: var(--cover-bg);
+      background-size: cover;
+      background-position: center;
+      filter: blur(var(--bg-blur)) saturate(120%);
+      transform: scale(1.08);
+      transform-origin: center;
+      opacity: var(--blurred-bg-opacity);
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    #widget::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: rgba(20, 20, 20, 0.6);
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    #widget>* {
+      position: relative;
+      z-index: 2;
+    }
+
+    #coverWrap {
+      width: 120px;
+      height: 120px;
+      flex: 0 0 120px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cover-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      transition: opacity 360ms ease-in-out;
+    }
+
+    .cover-layer.active {
+      opacity: 1;
+    }
+
+    #text {
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      padding: 10px 0 0 10px;
+      min-width: 0;
+      width: 680px;
+    }
+
+    .push-slot {
+      position: relative;
+      overflow: hidden;
+      --text-anim-ms: 420ms;
+    }
+
+    .push-text {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      opacity: 1;
+    }
+
+    .push-slot .push-text.next {
+      opacity: 0;
+    }
+
+    .push-slot.animating .push-text.current {
+      animation: pushOutLeft var(--text-anim-ms) ease-in-out forwards;
+    }
+
+    .push-slot.animating .push-text.next {
+      animation: pushInFromLeft var(--text-anim-ms) ease-in-out forwards;
+    }
+
+    @keyframes pushOutLeft {
+      0% {
+        transform: translateX(0);
+        opacity: 1;
+      }
+
+      100% {
+        transform: translateX(-112%);
+        opacity: 0;
+      }
+    }
+
+    @keyframes pushInFromLeft {
+      0% {
+        transform: translateX(-112%);
+        opacity: 0;
+      }
+
+      100% {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    #artist {
+      color: #ffb936;
+      font-size: 24px;
+      line-height: 24px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #track {
+      margin-top: 10px;
+      color: #ffffff;
+      font-size: 24px;
+      line-height: 28px;
+      padding-bottom: 2px;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="widget">
+    <div id="coverWrap">
+      <img id="coverA" class="cover-layer active" src="SpotCover.png" alt="Cover">
+      <img id="coverB" class="cover-layer" src="" alt="Cover">
+    </div>
+    <div id="text">
+      <div id="artist" class="push-slot">
+        <span class="push-text current"></span>
+        <span class="push-text next"></span>
+      </div>
+      <div id="track" class="push-slot">
+        <span class="push-text current"></span>
+        <span class="push-text next"></span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const scale = 1;
+    const useBlurredBackdrop = true;
+    const hidedWhenStopped = true;
+
+    const COVER_FILE = "SpotCover.png";
+    const ARTIST_FILE = "SpotArtist.txt";
+    const TRACK_FILE = "SpotTrack.txt";
+    const COVER_UPDATE_DELAY_MS = 900;
+
+    const BASE = {
+      widgetWidth: 600,
+      widgetHeight: 120,
+      widgetBorderRadius: 20,
+      coverSize: 120,
+      textPaddingTop: 14,
+      textPaddingLeft: 14,
+      artistFontSize: 36,
+      artistLineHeight: 36,
+      trackMarginTop: 10,
+      trackFontSize: 32,
+      trackLineHeight: 34,
+      trackPaddingBottom: 2,
+      backgroundBlur: 10,
+      textShadowOffsetX: 3,
+      textShadowOffsetY: 3,
+      textShadowBlur: 3
+    };
+
+    let lastArtist = "";
+    let lastTrack = "";
+    let isUpdating = false;
+    let transitionTimer = null;
+    let transitionToken = 0;
+    let scheduledArtist = "";
+    let scheduledTrack = "";
+
+    function px(value) {
+      return `${value}px`;
+    }
+
+    function applyScale() {
+      const widget = document.getElementById("widget");
+      const coverWrap = document.getElementById("coverWrap");
+      const text = document.getElementById("text");
+      const artist = document.getElementById("artist");
+      const track = document.getElementById("track");
+
+      const widgetWidth = Math.round(BASE.widgetWidth * scale);
+      const widgetHeight = Math.round(BASE.widgetHeight * scale);
+      const widgetBorderRadius = Math.round(BASE.widgetBorderRadius * scale);
+      const coverSize = Math.round(BASE.coverSize * scale);
+      const textPaddingTop = Math.round(BASE.textPaddingTop * scale);
+      const textPaddingLeft = Math.round(BASE.textPaddingLeft * scale);
+      const artistFontSize = Math.round(BASE.artistFontSize * scale);
+      const artistLineHeight = Math.round(BASE.artistLineHeight * scale);
+      const trackMarginTop = Math.round(BASE.trackMarginTop * scale);
+      const trackFontSize = Math.round(BASE.trackFontSize * scale);
+      const trackLineHeight = Math.round(BASE.trackLineHeight * scale);
+      const trackPaddingBottom = Math.round(BASE.trackPaddingBottom * scale);
+      const backgroundBlur = Math.round(BASE.backgroundBlur * scale);
+      const textShadowOffsetX = Math.round(BASE.textShadowOffsetX * scale);
+      const textShadowOffsetY = Math.round(BASE.textShadowOffsetY * scale);
+      const textShadowBlur = Math.round(BASE.textShadowBlur);
+      const scaledTextShadow = `${textShadowOffsetX}px ${textShadowOffsetY}px ${textShadowBlur}px rgba(0, 0, 0, 0.9)`;
+
+      document.documentElement.style.width = px(widgetWidth);
+      document.documentElement.style.height = px(widgetHeight);
+      document.body.style.width = px(widgetWidth);
+      document.body.style.height = px(widgetHeight);
+
+      widget.style.width = px(widgetWidth);
+      widget.style.height = px(widgetHeight);
+      widget.style.borderRadius = px(widgetBorderRadius);
+      widget.style.setProperty("--bg-blur", px(backgroundBlur));
+      widget.style.setProperty("--blurred-bg-opacity", useBlurredBackdrop ? "0.95" : "0");
+
+      coverWrap.style.width = px(coverSize);
+      coverWrap.style.height = px(coverSize);
+      coverWrap.style.flex = `0 0 ${coverSize}px`;
+
+      text.style.width = px(widgetWidth - coverSize);
+      text.style.paddingTop = px(textPaddingTop);
+      text.style.paddingLeft = px(textPaddingLeft);
+
+      artist.style.fontSize = px(artistFontSize);
+      artist.style.lineHeight = px(artistLineHeight);
+      artist.style.height = px(artistLineHeight);
+      artist.style.textShadow = scaledTextShadow;
+
+      track.style.marginTop = px(trackMarginTop);
+      track.style.fontSize = px(trackFontSize);
+      track.style.lineHeight = px(trackLineHeight);
+      track.style.height = px(trackLineHeight + trackPaddingBottom);
+      track.style.paddingBottom = px(trackPaddingBottom);
+      track.style.textShadow = scaledTextShadow;
+    }
+
+    async function readTextFile(path) {
+      const response = await fetch(`${path}?t=${Date.now()}`, { cache: "no-store" });
+      if (!response.ok) {
+        return "";
+      }
+      return (await response.text()).trim();
+    }
+
+    function applyWidgetVisibility(widget, track) {
+      const shouldHideWidget = hidedWhenStopped && !track;
+      widget.style.display = shouldHideWidget ? "none" : "flex";
+      return shouldHideWidget;
+    }
+
+    function applyCoverUrl(widget, coverUrl, animate) {
+      const coverA = document.getElementById("coverA");
+      const coverB = document.getElementById("coverB");
+      const activeCover = coverA.classList.contains("active") ? coverA : coverB;
+      const nextCover = activeCover === coverA ? coverB : coverA;
+
+      nextCover.onload = function () {
+        if (animate) {
+          nextCover.classList.add("active");
+          activeCover.classList.remove("active");
+        } else {
+          activeCover.classList.remove("active");
+          nextCover.classList.add("active");
+        }
+
+        widget.style.setProperty("--cover-bg", `url("${coverUrl}")`);
+
+        nextCover.onload = null;
+        nextCover.onerror = null;
+      };
+
+      nextCover.onerror = function () {
+        nextCover.onload = null;
+        nextCover.onerror = null;
+      };
+
+      nextCover.src = coverUrl;
+    }
+
+    function scheduleSongTransition(widget, artistElement, trackElement, artist, track) {
+      if (artist === scheduledArtist && track === scheduledTrack) {
+        return;
+      }
+
+      scheduledArtist = artist;
+      scheduledTrack = track;
+
+      transitionToken += 1;
+      const token = transitionToken;
+
+      if (transitionTimer) {
+        clearTimeout(transitionTimer);
+      }
+
+      transitionTimer = setTimeout(function () {
+        if (token !== transitionToken) {
+          return;
+        }
+
+        const targetArtist = scheduledArtist;
+        const targetTrack = scheduledTrack;
+        const hasPreviousData = lastArtist.length > 0 || lastTrack.length > 0;
+        const coverUrl = `${COVER_FILE}?t=${encodeURIComponent(targetTrack)}-${encodeURIComponent(targetArtist)}`;
+        const preload = new Image();
+
+        preload.onload = function () {
+          if (token !== transitionToken) {
+            return;
+          }
+
+          updateLineWithPush(artistElement, targetArtist, hasPreviousData);
+          updateLineWithPush(trackElement, targetTrack, hasPreviousData);
+          applyCoverUrl(widget, coverUrl, hasPreviousData);
+          lastArtist = targetArtist;
+          lastTrack = targetTrack;
+        };
+
+        preload.onerror = function () {
+          if (token !== transitionToken) {
+            return;
+          }
+
+          updateLineWithPush(artistElement, targetArtist, hasPreviousData);
+          updateLineWithPush(trackElement, targetTrack, hasPreviousData);
+          applyCoverUrl(widget, coverUrl, hasPreviousData);
+          lastArtist = targetArtist;
+          lastTrack = targetTrack;
+        };
+
+        preload.src = coverUrl;
+      }, COVER_UPDATE_DELAY_MS);
+    }
+
+    function updateLineWithPush(slotElement, newText, animate) {
+      const current = slotElement.querySelector(".push-text.current");
+      const next = slotElement.querySelector(".push-text.next");
+      const normalizedText = newText || "";
+
+      if (!animate || !current.textContent) {
+        current.textContent = normalizedText;
+        next.textContent = "";
+        slotElement.classList.remove("animating");
+        return;
+      }
+
+      if (current.textContent === normalizedText) {
+        return;
+      }
+
+      next.textContent = normalizedText;
+      slotElement.classList.remove("animating");
+      void slotElement.offsetWidth;
+      slotElement.classList.add("animating");
+
+      const animationDuration = parseInt(getComputedStyle(slotElement).getPropertyValue("--text-anim-ms"), 10) || 420;
+      if (slotElement._animTimer) {
+        clearTimeout(slotElement._animTimer);
+      }
+
+      slotElement._animTimer = setTimeout(function () {
+        current.textContent = normalizedText;
+        next.textContent = "";
+        slotElement.classList.remove("animating");
+        slotElement._animTimer = null;
+      }, animationDuration);
+    }
+
+    async function updateWidget() {
+      if (isUpdating) {
+        return;
+      }
+      isUpdating = true;
+
+      const artistElement = document.getElementById("artist");
+      const trackElement = document.getElementById("track");
+      const widget = document.getElementById("widget");
+
+      try {
+        const [artist, track] = await Promise.all([
+          readTextFile(ARTIST_FILE),
+          readTextFile(TRACK_FILE)
+        ]);
+
+        const shouldHideWidget = applyWidgetVisibility(widget, track);
+        if (shouldHideWidget) {
+          if (transitionTimer) {
+            clearTimeout(transitionTimer);
+            transitionTimer = null;
+          }
+
+          transitionToken += 1;
+          scheduledArtist = "";
+          scheduledTrack = "";
+          lastArtist = "";
+          lastTrack = "";
+          updateLineWithPush(artistElement, "", false);
+          updateLineWithPush(trackElement, "", false);
+          return;
+        }
+
+        if (artist !== lastArtist || track !== lastTrack) {
+          scheduleSongTransition(widget, artistElement, trackElement, artist, track);
+        }
+      } catch (error) {
+        console.error("Widget update error:", error);
+      } finally {
+        isUpdating = false;
+      }
+    }
+
+    applyScale();
+    updateWidget();
+    setInterval(updateWidget, 1000);
+  </script>
+</body>
+
+</html>

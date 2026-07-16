@@ -1,0 +1,40 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <style>
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            overflow: hidden;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- DO NOT REMOVE -->
+    <!-- Streamer.bot WebSocket configuration -->
+    <script type="module">
+        import "https://cdn.skypack.dev/@streamerbot/client";
+        window.client = new StreamerbotClient({
+            // Update the host and port to match your Streamer.bot WebSocket Server configuration, if you've changed it.
+            host: '127.0.0.1',
+            port: 8080,
+        });
+    </script>
+
+    <!-- DO NOT REMOVE -->
+    <!-- Custom Overlay Commands -->
+    <script type="module" src="windows-overlay.js"></script>
+
+    <!-- Add your overlay scripts here. -->
+    <script type="module" src="reward-notifications.js"></script>
+    <script type="module" src="splat-channel-reward.js"></script>
+    <script type="module" src="show-image.js"></script>
+    <script type="module" src="emote-rain.js"></script>
+</body>
+
+</html>
