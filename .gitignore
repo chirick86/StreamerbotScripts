@@ -2,7 +2,5 @@
 *
 
 # Keep the repository description files.
-!.gitignore
-!.gitmodules
 !README.md
 !Splayer_for_Streamerbot/
